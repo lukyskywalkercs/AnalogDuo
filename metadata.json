@@ -1,0 +1,7 @@
+{
+  "name": "Analog Duo",
+  "description": "Una aplicación de fotografía minimalista con dos filtros exclusivos: Kodak Gold 80 y Fujifilm Pro 400H.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
