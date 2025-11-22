@@ -1,6 +1,6 @@
 import { FilterType } from "../types";
 
-// --- Color Space Utilities ---
+// --- Utilities ---
 
 const rgbToHsl = (r: number, g: number, b: number) => {
   r /= 255; g /= 255; b /= 255;
@@ -58,17 +58,17 @@ const generateNoise = (width: number, height: number, strength: number) => {
   return noise;
 };
 
-// --- HELPER EFFECTS ---
+// --- EFFECTS ---
 
-// 1. Viñeteado Óptico: Oscurecimiento radial en las esquinas de la lente
+// 1. Viñeteado Óptico (Lente)
 const applyOpticalVignette = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) => {
     const gradient = ctx.createRadialGradient(
-        x + w / 2, y + h / 2, w * 0.3, // Start transparent circle in center
-        x + w / 2, y + h / 2, w * 0.8  // End at corners
+        x + w / 2, y + h / 2, w * 0.35, 
+        x + w / 2, y + h / 2, w * 0.85
     );
     gradient.addColorStop(0, 'rgba(0,0,0,0)');
-    gradient.addColorStop(0.6, 'rgba(0,0,0,0.05)');
-    gradient.addColorStop(1, 'rgba(0,0,0,0.4)'); // Dark corners
+    gradient.addColorStop(0.5, 'rgba(0,0,0,0.02)');
+    gradient.addColorStop(1, 'rgba(10,5,0,0.5)'); // Warm dark corners
 
     ctx.globalCompositeOperation = 'multiply';
     ctx.fillStyle = gradient;
@@ -76,40 +76,36 @@ const applyOpticalVignette = (ctx: CanvasRenderingContext2D, x: number, y: numbe
     ctx.globalCompositeOperation = 'source-over';
 };
 
-// 2. Textura de Papel: Ruido monocromático para el marco
+// 2. Textura Papel Polaroid
 const applyPaperTexture = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
-    // Creamos un canvas pequeño para el patrón de ruido
     const patternCanvas = document.createElement('canvas');
-    patternCanvas.width = 100;
-    patternCanvas.height = 100;
+    patternCanvas.width = 64;
+    patternCanvas.height = 64;
     const pCtx = patternCanvas.getContext('2d');
     if(!pCtx) return;
 
-    const imgData = pCtx.createImageData(100, 100);
+    const imgData = pCtx.createImageData(64, 64);
     for (let i = 0; i < imgData.data.length; i += 4) {
-        const gray = Math.random() * 255;
-        imgData.data[i] = gray;
-        imgData.data[i+1] = gray;
-        imgData.data[i+2] = gray;
-        imgData.data[i+3] = 15; // Muy transparente
+        const v = 255 - Math.random() * 10;
+        imgData.data[i] = v;
+        imgData.data[i+1] = v;
+        imgData.data[i+2] = v;
+        imgData.data[i+3] = 10; // Very subtle
     }
     pCtx.putImageData(imgData, 0, 0);
-
+    
     const pattern = ctx.createPattern(patternCanvas, 'repeat');
-    if (pattern) {
+    if(pattern) {
         ctx.fillStyle = pattern;
-        ctx.globalCompositeOperation = 'multiply'; // Fusionar con el gradiente blanco
-        ctx.fillRect(0, 0, w, h);
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.fillRect(0,0,w,h);
         ctx.globalCompositeOperation = 'source-over';
     }
 };
 
-// 3. Halación (Bloom): Resplandor en altas luces
+// 3. Halación (Glow en luces altas)
 const applyHalation = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) => {
-    // 1. Extraer la imagen actual
     const sourceData = ctx.getImageData(x, y, w, h);
-    
-    // 2. Crear un mapa de solo luces altas
     const highlightCanvas = document.createElement('canvas');
     highlightCanvas.width = w;
     highlightCanvas.height = h;
@@ -117,159 +113,129 @@ const applyHalation = (ctx: CanvasRenderingContext2D, x: number, y: number, w: n
     if (!hCtx) return;
 
     const hData = hCtx.createImageData(w, h);
-    
     for (let i = 0; i < sourceData.data.length; i += 4) {
         const r = sourceData.data[i];
         const g = sourceData.data[i+1];
         const b = sourceData.data[i+2];
+        const luma = 0.299*r + 0.587*g + 0.114*b;
         
-        // Calcular luminancia
-        const luma = 0.299 * r + 0.587 * g + 0.114 * b;
-        
-        // Threshold: Solo píxeles muy brillantes (>220)
-        if (luma > 220) {
-            hData.data[i] = r;
-            hData.data[i+1] = g;
-            hData.data[i+2] = b;
-            hData.data[i+3] = 255; 
+        if (luma > 210) {
+            hData.data[i] = 255; // Push to warm white
+            hData.data[i+1] = 220;
+            hData.data[i+2] = 200;
+            hData.data[i+3] = (luma - 210) * 2; 
         } else {
-            hData.data[i+3] = 0; // Transparente
+            hData.data[i+3] = 0;
         }
     }
-    
     hCtx.putImageData(hData, 0, 0);
 
-    // 3. Componer con Blur y Screen Mode
     ctx.save();
-    // Aplicar blur fuerte al mapa de luces
-    ctx.filter = 'blur(8px)'; 
-    ctx.globalCompositeOperation = 'screen'; // Modo de fusión para añadir luz
-    ctx.globalAlpha = 0.6; // Intensidad del bloom
+    ctx.filter = 'blur(6px)';
+    ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = 0.5;
     ctx.drawImage(highlightCanvas, x, y);
     ctx.restore();
 };
 
+// --- LOGIC PER FILTER ---
 
-// --- KODAK GOLD 80 LOGIC ---
 const applyKodakGold80 = (data: Uint8ClampedArray, width: number, height: number) => {
-  // 6. GRANO: Fuerte (Luminancia)
-  const noise = generateNoise(width, height, 40); 
-
-  for (let i = 0; i < data.length; i += 4) {
-    let r = data[i];
-    let g = data[i + 1];
-    let b = data[i + 2];
-
-    // 1. CONTRASTE: Levantamiento del Punto Negro (Fade)
-    const blackLift = 35;
-    r = blackLift + (r / 255) * (255 - blackLift);
-    g = blackLift + (g / 255) * (255 - blackLift);
-    b = blackLift + (b / 255) * (255 - blackLift);
-
-    // 2. BALANCE CROMÁTICO:
-    // Global: +5% Cálido
-    r *= 1.05; 
-    b *= 0.95;
+    const noise = generateNoise(width, height, 35);
     
-    // Sombras: Tinte Naranja-Rojo
-    const luma = 0.299 * r + 0.587 * g + 0.114 * b;
-    if (luma < 100) {
-      const factor = (100 - luma) / 100; 
-      r += 15 * factor;
-      g += 5 * factor;
+    for (let i = 0; i < data.length; i += 4) {
+        let r = data[i], g = data[i+1], b = data[i+2];
+
+        // 1. Lift Blacks (Fade)
+        const lift = 30;
+        r = lift + (r/255)*(255-lift);
+        g = lift + (g/255)*(255-lift);
+        b = lift + (b/255)*(255-lift);
+
+        // 2. Warmth
+        r *= 1.08; 
+        b *= 0.92;
+
+        // 3. Shadows warmth
+        const luma = 0.299*r + 0.587*g + 0.114*b;
+        if(luma < 100) {
+            r += (100-luma)*0.15;
+            g += (100-luma)*0.05;
+        }
+
+        // 4. HSL Tweaks
+        let [h,s,l] = rgbToHsl(r,g,b);
+        s *= 0.85; // Desaturate
+        
+        // Skin tones
+        if(h < 40 || h > 340) {
+            l *= 1.05;
+            s *= 0.95;
+        }
+
+        const rgb = hslToRgb(h,s,l);
+        r = rgb[0]; g = rgb[1]; b = rgb[2];
+
+        // Noise
+        data[i] = clamp(r + noise[i]);
+        data[i+1] = clamp(g + noise[i+1]);
+        data[i+2] = clamp(b + noise[i+2]);
     }
-
-    // Conversión a HSL para pasos 3 y 4
-    let [h, s, l] = rgbToHsl(r, g, b);
-
-    // 3. SATURACIÓN: -20% Desaturación General
-    s = s * 0.80;
-
-    // 4. TONOS DE PIEL (Clave): Naranjas y Rojos
-    if (h < 40 || h > 340) {
-      l = Math.min(100, l * 1.10); // +10% Luminosidad (Brillo)
-      s = Math.max(0, s * 0.95);   // -5% Saturación (Suavizar)
-    }
-
-    // Volver a RGB
-    const rgb = hslToRgb(h, s, l);
-    r = rgb[0]; g = rgb[1]; b = rgb[2];
-
-    // 6. GRANO (Aplicación)
-    r = clamp(r + noise[i]);
-    g = clamp(g + noise[i+1]);
-    b = clamp(b + noise[i+2]);
-
-    data[i] = r;
-    data[i + 1] = g;
-    data[i + 2] = b;
-  }
 };
 
-// --- FUJIFILM PRO 400H LOGIC ---
 const applyFujiPro400H = (data: Uint8ClampedArray, width: number, height: number) => {
-  // 6. GRANO: Fino (ISO 100/200)
-  const noise = generateNoise(width, height, 18);
-
-  // LUT de Contraste Sigmoideo
-  const contrastLUT = new Uint8Array(256);
-  for (let i = 0; i < 256; i++) {
-      let x = i / 255;
-      let val = (1 / (1 + Math.exp(-6 * (x - 0.5)))) * 255;
-      val = (val - 12) * 1.1; 
-      contrastLUT[i] = clamp(val);
-  }
-
-  for (let i = 0; i < data.length; i += 4) {
-    let r = data[i];
-    let g = data[i + 1];
-    let b = data[i + 2];
-
-    // 1. CONTRASTE: Curva S Marcada
-    r = contrastLUT[r];
-    g = contrastLUT[g];
-    b = contrastLUT[b];
-
-    // 2. BALANCE CROMÁTICO:
-    r *= 0.95;
-    const luma = 0.299 * r + 0.587 * g + 0.114 * b;
-    if (luma > 180) {
-        const factor = (luma - 180) / 75;
-        g += 10 * factor; 
-        r += 5 * factor;  
+    const noise = generateNoise(width, height, 20);
+    
+    // Contrast Curve
+    const curve = new Uint8Array(256);
+    for(let i=0; i<256; i++) {
+        let x = i/255;
+        let y = (1 / (1 + Math.exp(-5 * (x - 0.5)))) * 255; // S-Curve
+        curve[i] = clamp((y - 10) * 1.08);
     }
 
-    let [h, s, l] = rgbToHsl(r, g, b);
+    for (let i = 0; i < data.length; i += 4) {
+        let r = data[i], g = data[i+1], b = data[i+2];
 
-    // 3. COLOR CLAVE (GREEN SHIFT): Verde -> Cian
-    if (h >= 70 && h <= 170) {
-        h = h + 30; 
-        l = Math.min(100, l * 1.05);
+        // 1. Contrast
+        r = curve[r]; g = curve[g]; b = curve[b];
+
+        // 2. Cool/Cyan Bias
+        r *= 0.96;
+        
+        // Highlights Green/Yellow tint
+        const luma = 0.299*r + 0.587*g + 0.114*b;
+        if(luma > 180) {
+            g += (luma-180) * 0.1;
+            r += (luma-180) * 0.05;
+        }
+
+        // 3. HSL - Green Shift
+        let [h,s,l] = rgbToHsl(r,g,b);
+        
+        // Greens -> Cyan
+        if (h > 60 && h < 160) {
+            h += 20;
+            s *= 1.1;
+        }
+
+        // Boost Blues
+        if (h > 170 && h < 260) {
+            s *= 1.2;
+        }
+
+        // Global Sat
+        s *= 1.1;
+
+        const rgb = hslToRgb(h,s,l);
+        r = rgb[0]; g = rgb[1]; b = rgb[2];
+
+        // Noise
+        data[i] = clamp(r + noise[i]);
+        data[i+1] = clamp(g + noise[i+1]);
+        data[i+2] = clamp(b + noise[i+2]);
     }
-
-    // 4. SATURACIÓN:
-    s = s * 1.10;
-    if (h >= 170 && h <= 260) {
-        s = Math.min(100, s * 1.20);
-    }
-
-    // 5. MANEJO DE LUCES
-    if (l > 95) l = 95 + (l-95)*0.5;
-
-    const rgb = hslToRgb(h, s, l);
-    r = rgb[0]; g = rgb[1]; b = rgb[2];
-
-    // 6. GRANO
-    r = clamp(r + noise[i]);
-    g = clamp(g + noise[i+1]);
-    b = clamp(b + noise[i+2]);
-
-    data[i] = r;
-    data[i + 1] = g;
-    data[i + 2] = b;
-  }
 };
-
 
 export const applyFilterToCanvas = (
   canvas: HTMLCanvasElement,
@@ -279,71 +245,55 @@ export const applyFilterToCanvas = (
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return;
 
-  // --- GEOMETRÍA POLAROID ---
-  const margin = Math.max(20, img.naturalWidth * 0.06); 
-  const bottomMargin = Math.max(60, img.naturalWidth * 0.22); 
-  const innerWidth = img.naturalWidth;
-  const innerHeight = img.naturalHeight;
-  const totalWidth = innerWidth + (margin * 2);
-  const totalHeight = innerHeight + margin + bottomMargin;
+  // 1. POLAROID GEOMETRY
+  const margin = Math.max(20, img.naturalWidth * 0.05);
+  const bottomMargin = Math.max(80, img.naturalWidth * 0.25); // Chin
+  const innerW = img.naturalWidth;
+  const innerH = img.naturalHeight;
+  const totalW = innerW + (margin*2);
+  const totalH = innerH + margin + bottomMargin;
 
-  // Redimensionar
-  canvas.width = totalWidth;
-  canvas.height = totalHeight;
+  canvas.width = totalW;
+  canvas.height = totalH;
 
-  // 1. DIBUJAR PAPEL POLAROID (Mejorado)
-  // Gradiente sutil para que no sea un color plano digital
-  const paperGradient = ctx.createLinearGradient(0, 0, totalWidth, totalHeight);
-  paperGradient.addColorStop(0, '#ffffff');    // Luz arriba
-  paperGradient.addColorStop(1, '#f2f0ea');    // Sombra sutil abajo
-  ctx.fillStyle = paperGradient;
-  ctx.fillRect(0, 0, totalWidth, totalHeight);
+  // 2. DRAW PAPER
+  const grad = ctx.createLinearGradient(0,0,totalW,totalH);
+  grad.addColorStop(0, '#ffffff');
+  grad.addColorStop(1, '#f0f0f0');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0,0,totalW,totalH);
+  applyPaperTexture(ctx, totalW, totalH);
 
-  // Añadir textura de papel (ruido sutil)
-  applyPaperTexture(ctx, totalWidth, totalHeight);
-
-  // 2. SOMBRA INTERNA DIFUSA (Mejorado)
-  // Sombra "profunda" detrás de la foto para dar volumen
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
-  ctx.shadowBlur = 15;
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 2;
-  ctx.fillStyle = '#1a1a1a'; 
-  ctx.fillRect(margin, margin, innerWidth, innerHeight);
-  
-  // Resetear sombra para no afectar a la imagen
+  // 3. DRAW SHADOW
+  ctx.shadowColor = 'rgba(0,0,0,0.2)';
+  ctx.shadowBlur = 20;
+  ctx.shadowOffsetY = 5;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(margin, margin, innerW, innerH);
   ctx.shadowColor = 'transparent';
   ctx.shadowBlur = 0;
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 0;
 
-  // 3. DIBUJAR LA FOTO
-  ctx.drawImage(img, margin, margin, innerWidth, innerHeight);
-  
-  // 4. EFECTOS DE REVELADO (Halación) - Solo para Kodak
-  // Se aplica ANTES de la manipulación de píxeles para tener datos suaves
+  // 4. DRAW IMAGE
+  ctx.drawImage(img, margin, margin, innerW, innerH);
+
+  // 5. KODAK HALATION (Before pixel manip)
   if (filter === FilterType.KODAK_GOLD) {
-      applyHalation(ctx, margin, margin, innerWidth, innerHeight);
+      applyHalation(ctx, margin, margin, innerW, innerH);
   }
 
-  // Si no hay filtro de color, terminamos aquí
   if (filter === FilterType.NONE) return;
 
-  // 5. PROCESAMIENTO DE PÍXELES (Filtros de Color y Grano)
-  const imgData = ctx.getImageData(margin, margin, innerWidth, innerHeight);
-  const data = imgData.data;
-
+  // 6. PIXEL MANIPULATION
+  const imgData = ctx.getImageData(margin, margin, innerW, innerH);
+  
   if (filter === FilterType.KODAK_GOLD) {
-    applyKodakGold80(data, innerWidth, innerHeight);
+      applyKodakGold80(imgData.data, innerW, innerH);
   } else if (filter === FilterType.FUJI_PRO_400H) {
-    applyFujiPro400H(data, innerWidth, innerHeight);
+      applyFujiPro400H(imgData.data, innerW, innerH);
   }
 
-  // Volcar datos modificados
   ctx.putImageData(imgData, margin, margin);
 
-  // 6. VIÑETEADO ÓPTICO (Final)
-  // Se aplica sobre los píxeles modificados para simular la lente
-  // Solo sobre la foto, no sobre el papel
-  applyOpticalVignette(ctx, margin, margin, innerWidth, innerHeight);
+  // 7. VIGNETTE (After pixel manip, inside frame)
+  applyOpticalVignette(ctx, margin, margin, innerW, innerH);
 };

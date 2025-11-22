@@ -1,7 +1,7 @@
 import React from 'react';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'outline' | 'ghost';
+  variant?: 'primary' | 'outline' | 'ghost';
   icon?: React.ReactNode;
 }
 
@@ -12,21 +12,17 @@ export const Button: React.FC<ButtonProps> = ({
   className = '', 
   ...props 
 }) => {
-  const baseStyles = "inline-flex items-center justify-center px-6 py-3 rounded-full font-medium transition-all duration-200 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed";
+  const base = "inline-flex items-center justify-center rounded-full transition-all active:scale-95";
   
   const variants = {
-    primary: "bg-white text-black hover:bg-gray-200 shadow-lg",
-    secondary: "bg-gray-800 text-white hover:bg-gray-700",
-    outline: "border-2 border-white/30 text-white hover:bg-white/10 backdrop-blur-sm",
-    ghost: "text-white hover:bg-white/10",
+    primary: "bg-white text-black shadow-lg",
+    outline: "border border-white text-white",
+    ghost: "text-white/80 hover:text-white",
   };
 
   return (
-    <button 
-      className={`${baseStyles} ${variants[variant]} ${className}`}
-      {...props}
-    >
-      {icon && <span className="mr-2">{icon}</span>}
+    <button className={`${base} ${variants[variant]} ${className}`} {...props}>
+      {icon}
       {children}
     </button>
   );
