@@ -58,7 +58,99 @@ const generateNoise = (width: number, height: number, strength: number) => {
   return noise;
 };
 
-// --- KODAK GOLD 80 IMPLEMENTATION ---
+// --- HELPER EFFECTS ---
+
+// 1. Viñeteado Óptico: Oscurecimiento radial en las esquinas de la lente
+const applyOpticalVignette = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) => {
+    const gradient = ctx.createRadialGradient(
+        x + w / 2, y + h / 2, w * 0.3, // Start transparent circle in center
+        x + w / 2, y + h / 2, w * 0.8  // End at corners
+    );
+    gradient.addColorStop(0, 'rgba(0,0,0,0)');
+    gradient.addColorStop(0.6, 'rgba(0,0,0,0.05)');
+    gradient.addColorStop(1, 'rgba(0,0,0,0.4)'); // Dark corners
+
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = gradient;
+    ctx.fillRect(x, y, w, h);
+    ctx.globalCompositeOperation = 'source-over';
+};
+
+// 2. Textura de Papel: Ruido monocromático para el marco
+const applyPaperTexture = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
+    // Creamos un canvas pequeño para el patrón de ruido
+    const patternCanvas = document.createElement('canvas');
+    patternCanvas.width = 100;
+    patternCanvas.height = 100;
+    const pCtx = patternCanvas.getContext('2d');
+    if(!pCtx) return;
+
+    const imgData = pCtx.createImageData(100, 100);
+    for (let i = 0; i < imgData.data.length; i += 4) {
+        const gray = Math.random() * 255;
+        imgData.data[i] = gray;
+        imgData.data[i+1] = gray;
+        imgData.data[i+2] = gray;
+        imgData.data[i+3] = 15; // Muy transparente
+    }
+    pCtx.putImageData(imgData, 0, 0);
+
+    const pattern = ctx.createPattern(patternCanvas, 'repeat');
+    if (pattern) {
+        ctx.fillStyle = pattern;
+        ctx.globalCompositeOperation = 'multiply'; // Fusionar con el gradiente blanco
+        ctx.fillRect(0, 0, w, h);
+        ctx.globalCompositeOperation = 'source-over';
+    }
+};
+
+// 3. Halación (Bloom): Resplandor en altas luces
+const applyHalation = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) => {
+    // 1. Extraer la imagen actual
+    const sourceData = ctx.getImageData(x, y, w, h);
+    
+    // 2. Crear un mapa de solo luces altas
+    const highlightCanvas = document.createElement('canvas');
+    highlightCanvas.width = w;
+    highlightCanvas.height = h;
+    const hCtx = highlightCanvas.getContext('2d');
+    if (!hCtx) return;
+
+    const hData = hCtx.createImageData(w, h);
+    
+    for (let i = 0; i < sourceData.data.length; i += 4) {
+        const r = sourceData.data[i];
+        const g = sourceData.data[i+1];
+        const b = sourceData.data[i+2];
+        
+        // Calcular luminancia
+        const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+        
+        // Threshold: Solo píxeles muy brillantes (>220)
+        if (luma > 220) {
+            hData.data[i] = r;
+            hData.data[i+1] = g;
+            hData.data[i+2] = b;
+            hData.data[i+3] = 255; 
+        } else {
+            hData.data[i+3] = 0; // Transparente
+        }
+    }
+    
+    hCtx.putImageData(hData, 0, 0);
+
+    // 3. Componer con Blur y Screen Mode
+    ctx.save();
+    // Aplicar blur fuerte al mapa de luces
+    ctx.filter = 'blur(8px)'; 
+    ctx.globalCompositeOperation = 'screen'; // Modo de fusión para añadir luz
+    ctx.globalAlpha = 0.6; // Intensidad del bloom
+    ctx.drawImage(highlightCanvas, x, y);
+    ctx.restore();
+};
+
+
+// --- KODAK GOLD 80 LOGIC ---
 const applyKodakGold80 = (data: Uint8ClampedArray, width: number, height: number) => {
   // 6. GRANO: Fuerte (Luminancia)
   const noise = generateNoise(width, height, 40); 
@@ -69,8 +161,6 @@ const applyKodakGold80 = (data: Uint8ClampedArray, width: number, height: number
     let b = data[i + 2];
 
     // 1. CONTRASTE: Levantamiento del Punto Negro (Fade)
-    // Los negros no son 0, son gris oscuro cálido (~30)
-    // Fórmula simple de 'lift': nuevo_val = lift + (val * (255-lift)/255)
     const blackLift = 35;
     r = blackLift + (r / 255) * (255 - blackLift);
     g = blackLift + (g / 255) * (255 - blackLift);
@@ -82,10 +172,9 @@ const applyKodakGold80 = (data: Uint8ClampedArray, width: number, height: number
     b *= 0.95;
     
     // Sombras: Tinte Naranja-Rojo
-    // Si la luminosidad es baja, inyectar rojo y un poco de verde (naranja)
     const luma = 0.299 * r + 0.587 * g + 0.114 * b;
     if (luma < 100) {
-      const factor = (100 - luma) / 100; // Más fuerte en lo más oscuro
+      const factor = (100 - luma) / 100; 
       r += 15 * factor;
       g += 5 * factor;
     }
@@ -97,7 +186,6 @@ const applyKodakGold80 = (data: Uint8ClampedArray, width: number, height: number
     s = s * 0.80;
 
     // 4. TONOS DE PIEL (Clave): Naranjas y Rojos
-    // Hue Rojo es alrededor de 0/360, Naranja ~30
     if (h < 40 || h > 340) {
       l = Math.min(100, l * 1.10); // +10% Luminosidad (Brillo)
       s = Math.max(0, s * 0.95);   // -5% Saturación (Suavizar)
@@ -118,18 +206,16 @@ const applyKodakGold80 = (data: Uint8ClampedArray, width: number, height: number
   }
 };
 
-// --- FUJIFILM PRO 400H IMPLEMENTATION ---
+// --- FUJIFILM PRO 400H LOGIC ---
 const applyFujiPro400H = (data: Uint8ClampedArray, width: number, height: number) => {
   // 6. GRANO: Fino (ISO 100/200)
   const noise = generateNoise(width, height, 18);
 
-  // LUT de Contraste Sigmoideo (Paso 1)
+  // LUT de Contraste Sigmoideo
   const contrastLUT = new Uint8Array(256);
   for (let i = 0; i < 256; i++) {
       let x = i / 255;
-      // S-Curve Aggressive: Steep center, pushes blacks down, whites up
       let val = (1 / (1 + Math.exp(-6 * (x - 0.5)))) * 255;
-      // Normalizar para asegurar rango completo pero orgánico
       val = (val - 12) * 1.1; 
       contrastLUT[i] = clamp(val);
   }
@@ -145,45 +231,31 @@ const applyFujiPro400H = (data: Uint8ClampedArray, width: number, height: number
     b = contrastLUT[b];
 
     // 2. BALANCE CROMÁTICO:
-    // Global: Frío/Cian (-5% Temp)
     r *= 0.95;
-    // Luces: Tinte Amarillo/Verde sutil
-    // Check Luma after contrast
     const luma = 0.299 * r + 0.587 * g + 0.114 * b;
     if (luma > 180) {
         const factor = (luma - 180) / 75;
-        g += 10 * factor; // Verde
-        r += 5 * factor;  // Amarillo (R+G)
+        g += 10 * factor; 
+        r += 5 * factor;  
     }
 
-    // HSL para manipulación de color precisa
     let [h, s, l] = rgbToHsl(r, g, b);
 
     // 3. COLOR CLAVE (GREEN SHIFT): Verde -> Cian
-    // Rango Verdes: ~80 a ~160
     if (h >= 70 && h <= 170) {
-        // Mover Hacia Cian (que es 180)
-        // Shift negativo es hacia amarillo, positivo hacia cian (en grados HSL estándar)
-        // Green (120) -> Cyan (180). Queremos sumar.
-        // El usuario pidió "Mover hacia el Cian".
         h = h + 30; 
-        // Luminosidad Verde +5%
         l = Math.min(100, l * 1.05);
     }
 
     // 4. SATURACIÓN:
-    // Global +10%
     s = s * 1.10;
-    // Azul/Cian +20% (Rango 170 - 260)
     if (h >= 170 && h <= 260) {
         s = Math.min(100, s * 1.20);
     }
 
-    // 5. MANEJO DE LUCES: Compresión de Highlights
-    // Evitar quemados puros (255). Roll-off suave.
+    // 5. MANEJO DE LUCES
     if (l > 95) l = 95 + (l-95)*0.5;
 
-    // Volver a RGB
     const rgb = hslToRgb(h, s, l);
     r = rgb[0]; g = rgb[1]; b = rgb[2];
 
@@ -207,36 +279,71 @@ export const applyFilterToCanvas = (
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return;
 
-  canvas.width = img.naturalWidth;
-  canvas.height = img.naturalHeight;
+  // --- GEOMETRÍA POLAROID ---
+  const margin = Math.max(20, img.naturalWidth * 0.06); 
+  const bottomMargin = Math.max(60, img.naturalWidth * 0.22); 
+  const innerWidth = img.naturalWidth;
+  const innerHeight = img.naturalHeight;
+  const totalWidth = innerWidth + (margin * 2);
+  const totalHeight = innerHeight + margin + bottomMargin;
 
-  // 5. NITIDEZ/DESENFOQUE (KODAK) - Paso Previo al Render
-  // Aplicar filtro nativo del canvas *antes* de dibujar la imagen
+  // Redimensionar
+  canvas.width = totalWidth;
+  canvas.height = totalHeight;
+
+  // 1. DIBUJAR PAPEL POLAROID (Mejorado)
+  // Gradiente sutil para que no sea un color plano digital
+  const paperGradient = ctx.createLinearGradient(0, 0, totalWidth, totalHeight);
+  paperGradient.addColorStop(0, '#ffffff');    // Luz arriba
+  paperGradient.addColorStop(1, '#f2f0ea');    // Sombra sutil abajo
+  ctx.fillStyle = paperGradient;
+  ctx.fillRect(0, 0, totalWidth, totalHeight);
+
+  // Añadir textura de papel (ruido sutil)
+  applyPaperTexture(ctx, totalWidth, totalHeight);
+
+  // 2. SOMBRA INTERNA DIFUSA (Mejorado)
+  // Sombra "profunda" detrás de la foto para dar volumen
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+  ctx.shadowBlur = 15;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 2;
+  ctx.fillStyle = '#1a1a1a'; 
+  ctx.fillRect(margin, margin, innerWidth, innerHeight);
+  
+  // Resetear sombra para no afectar a la imagen
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+
+  // 3. DIBUJAR LA FOTO
+  ctx.drawImage(img, margin, margin, innerWidth, innerHeight);
+  
+  // 4. EFECTOS DE REVELADO (Halación) - Solo para Kodak
+  // Se aplica ANTES de la manipulación de píxeles para tener datos suaves
   if (filter === FilterType.KODAK_GOLD) {
-      // "Desenfoque Gaussian muy ligero"
-      // Calculamos un radio relativo al tamaño de la imagen para consistencia
-      const blurRadius = Math.max(0.5, canvas.width / 2000); 
-      ctx.filter = `blur(${blurRadius}px)`;
-  } else {
-      ctx.filter = 'none';
+      applyHalation(ctx, margin, margin, innerWidth, innerHeight);
   }
 
-  // Draw original
-  ctx.drawImage(img, 0, 0);
-  
-  // Reset filter for future draws so we don't blur the UI or subsequent draws accidentally (though we redraw everything)
-  ctx.filter = 'none';
-
+  // Si no hay filtro de color, terminamos aquí
   if (filter === FilterType.NONE) return;
 
-  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  // 5. PROCESAMIENTO DE PÍXELES (Filtros de Color y Grano)
+  const imgData = ctx.getImageData(margin, margin, innerWidth, innerHeight);
   const data = imgData.data;
 
   if (filter === FilterType.KODAK_GOLD) {
-    applyKodakGold80(data, canvas.width, canvas.height);
+    applyKodakGold80(data, innerWidth, innerHeight);
   } else if (filter === FilterType.FUJI_PRO_400H) {
-    applyFujiPro400H(data, canvas.width, canvas.height);
+    applyFujiPro400H(data, innerWidth, innerHeight);
   }
 
-  ctx.putImageData(imgData, 0, 0);
+  // Volcar datos modificados
+  ctx.putImageData(imgData, margin, margin);
+
+  // 6. VIÑETEADO ÓPTICO (Final)
+  // Se aplica sobre los píxeles modificados para simular la lente
+  // Solo sobre la foto, no sobre el papel
+  applyOpticalVignette(ctx, margin, margin, innerWidth, innerHeight);
 };

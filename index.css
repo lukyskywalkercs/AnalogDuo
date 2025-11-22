@@ -1,0 +1,28 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Playfair+Display:wght@400;700&display=swap');
+
+/* Reset móvil crítico y estilos globales */
+body {
+  background-color: #000000;
+  color: #f5f5f5;
+  margin: 0;
+  padding: 0;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  /* Manejo de Safe Areas para iPhone X+ */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  font-family: 'Inter', sans-serif;
+}
+
+/* Ocultar scrollbars */
+::-webkit-scrollbar {
+  width: 0px;
+  background: transparent;
+}
+
+/* Utilidad para asegurar que el canvas no se seleccione al tocar */
+canvas {
+  touch-action: none;
+}

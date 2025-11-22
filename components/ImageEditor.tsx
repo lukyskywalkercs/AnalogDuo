@@ -68,7 +68,8 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageSrc, onBack }) =>
       </div>
 
       {/* Canvas Area - Flex 1 to take all available space */}
-      <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-[#050505] w-full">
+      {/* Fondo muy oscuro para resaltar el marco blanco de la Polaroid */}
+      <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-[#121212] w-full p-4">
         <canvas 
           ref={canvasRef} 
           className="max-w-full max-h-full object-contain shadow-2xl"
@@ -76,8 +77,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ imageSrc, onBack }) =>
         
         {/* AI Suggestion Toast */}
         {analysis && (
-          <div className="absolute top-24 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-md px-6 py-3 rounded-full border border-white/10 animate-fade-in text-center w-[80%] z-20 shadow-xl">
-            <p className="text-sm text-gray-200 italic font-serif">"{analysis.caption}"</p>
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md px-6 py-4 rounded-xl border border-white/10 animate-fade-in text-center w-[85%] z-20 shadow-2xl">
+             <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider">IA Sugiere: {analysis.suggestedFilter === FilterType.KODAK_GOLD ? 'Kodak Gold' : 'Fuji Pro'}</span>
+                <p className="text-sm text-gray-200 italic font-serif">"{analysis.caption}"</p>
+             </div>
           </div>
         )}
       </div>
